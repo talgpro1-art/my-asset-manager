@@ -11,7 +11,7 @@ def init_connection():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # [수정된 핵심 로직] TOML에서 가져온 데이터 중 꼬여있는 줄바꿈(\n) 기호를 파이썬이 인식할 수 있게 강제 변환합니다.
+        # 줄바꿈 기호(\n) 강제 변환 로직
         gcp_creds = dict(st.secrets["gcp_service_account"])
         gcp_creds["private_key"] = gcp_creds["private_key"].replace('\\n', '\n')
         
@@ -23,9 +23,11 @@ def init_connection():
         st.error(f"데이터베이스 연결 실패: {e}")
         st.stop()
 
+# 🚨 직전에 지워졌던 바로 그 핵심 코드입니다! (시트 연결 변수 선언)
+sheet = init_connection()
+
 def load_data():
     try:
-        # 구글 시트 A1 셀의 데이터를 통째로 읽어옴
         val = sheet.acell('A1').value
         if val:
             return json.loads(val)
