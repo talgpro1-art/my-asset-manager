@@ -129,7 +129,7 @@ if selected_profile != "유저를 등록해주세요":
     items = data[selected_profile].get("pension", [])
     df = pd.DataFrame(items)
     
-    # --- 한도 계산 로직 고도화 ---
+# --- 한도 계산 로직 통합 (900만 vs 1800만) ---
     limit_pen = 6000000 # 연금저축 공제한도
     limit_irp = 3000000 # IRP 추가 공제한도
     tax_limit = 9000000 # 총 세액공제 한도
@@ -144,32 +144,51 @@ if selected_profile != "유저를 등록해주세요":
     # 1. 세액공제 인정 금액 계산
     valid_pen = min(total_pen, limit_pen)
     valid_irp = min(total_irp, tax_limit - valid_pen)
-    total_tax_valid = valid_pen + valid_irp # 세액공제 대상 금액
+    total_tax_valid = valid_pen + valid_irp 
     
-    # 2. 전체 납입 및 추가 한도 계산
-    total_actual_pay = total_pen + total_irp # 실제 총 납입액
-    over_limit_pay = max(0, total_actual_pay - tax_limit) # 공제 한도 초과분 (B호 권장분)
-    remaining_total_limit = max(0, total_annual_limit - total_actual_pay) # 1800만 원까지 남은 금액
+    # 2. 하단 액션 플랜용 변수 정의 (에러 해결 핵심!)
+    shortfall = tax_limit - total_tax_valid
+    shortfall_pen = max(0, limit_pen - valid_pen)
+    shortfall_irp = max(0, shortfall - shortfall_pen)
+    
+    # 3. 환급액 및 손실액 계산
+    max_refund = int(tax_limit * user_rate)
+    current_refund = int(total_tax_valid * user_rate)
+    lost_money = max_refund - current_refund
+    
+    # 4. 전체 납입 및 1800만 트랙 계산
+    total_actual_pay = total_pen + total_irp
+    over_limit_pay = max(0, total_actual_pay - tax_limit)
+    remaining_total_limit = max(0, total_annual_limit - total_actual_pay)
 
     # --- 화면 표시 ---
     st.title(f"🎯 {selected_profile}님의 통합 자산 관리 리포트")
+    st.caption(f"적용된 세액공제율: {rate_text}")
+    st.markdown("---")
     
     # 첫 번째 줄: 세액공제 집중 (900만 한도)
     st.subheader("🛡️ 세액공제 트랙 (연 900만 원)")
+    if lost_money > 0:
+        st.error(f"🚨 **비상!** 공제 한도 미달로 환급액 **{lost_money:,}원**이 버려지고 있습니다.")
+    else:
+        st.success(f"🎉 **완벽!** 최대 환급액 **{max_refund:,}원**을 100% 확보했습니다.")
+
     c1, c2, c3 = st.columns(3)
     c1.metric("공제 대상 금액", f"{total_tax_valid:,}원")
-    c2.metric("남은 공제 한도", f"{max(0, tax_limit - total_tax_valid):,}원")
-    c3.metric("예상 환급액", f"{int(total_tax_valid * user_rate):,}원")
+    c2.metric("남은 공제 한도", f"{shortfall:,}원")
+    c3.metric("예상 환급액", f"{current_refund:,}원")
     st.progress(min(1.0, total_tax_valid / tax_limit))
 
-    # 두 번째 줄: 전체 투자 집중 (1,800만 한도)
+    # 두 번째 줄: 전략적 투자 트랙 (1,800만 한도)
     st.subheader("🚀 전략적 투자 트랙 (연 1,800만 원)")
     c4, c5, c6 = st.columns(3)
     c4.metric("총 납입 금액", f"{total_actual_pay:,}원")
-    c5.metric("공제 초과 금액 (B호)", f"{over_limit_pay:,}원", help="세액공제는 못 받지만 언제든 비과세 인출이 가능한 금액입니다.")
-    c6.metric("추가 납입 가능액", f"{remaining_total_limit:,}원", help="1,800만 원 한도까지 남은 금액입니다.")
+    c5.metric("비과세 인출 가능 (B호)", f"{over_limit_pay:,}원", help="세액공제는 안 받았지만 나중에 세금 없이 뺄 수 있는 원금입니다.")
+    c6.metric("추가 납입 가능액", f"{remaining_total_limit:,}원")
     st.progress(min(1.0, total_actual_pay / total_annual_limit))
+    
     st.write("")
+    # (이 아래부터 "### 🏦 내 연금 계좌 관리" 부분이 이어지면 됩니다)
 
     st.markdown("### 🏦 내 연금 계좌 관리")
     with st.expander("➕ 새로운 연금 상품 등록 (기존 가입 포함)", expanded=True if df.empty else False):
