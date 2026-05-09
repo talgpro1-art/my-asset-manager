@@ -6,21 +6,22 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- 1. 구글 시트 데이터베이스 셋업 ---
-# 허깅페이스/스트림릿 Secrets에서 인증 정보를 가져옵니다.
 @st.cache_resource
 def init_connection():
     try:
-        # GCP 서비스 계정 키와 시트 URL을 secrets에서 불러옴
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        
+        # [수정된 핵심 로직] TOML에서 가져온 데이터 중 꼬여있는 줄바꿈(\n) 기호를 파이썬이 인식할 수 있게 강제 변환합니다.
+        gcp_creds = dict(st.secrets["gcp_service_account"])
+        gcp_creds["private_key"] = gcp_creds["private_key"].replace('\\n', '\n')
+        
+        creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
         client = gspread.authorize(creds)
         sheet_url = st.secrets["private"]["sheet_url"]
         return client.open_by_url(sheet_url).sheet1
     except Exception as e:
         st.error(f"데이터베이스 연결 실패: {e}")
         st.stop()
-
-sheet = init_connection()
 
 def load_data():
     try:
