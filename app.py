@@ -37,11 +37,12 @@ def save_data(data):
     try:
         json_str = json.dumps(data, ensure_ascii=False)
         sheet.update_acell('A1', json_str)
+        return True # 정상 저장됨
     except Exception as e:
-        # 스트림릿이 에러를 숨기지 못하도록 우리가 직접 화면에 뿌려버립니다.
+        # 에러가 발생하면 화면에 출력하고 False 반환
         st.error(f"🚨 구글 시트 저장 실패! (실제 에러 내용: {e})")
-        st.info("💡 체크포인트 1: 구글 시트 [공유] 설정에서 봇 이메일이 **'뷰어'**가 아닌 **'편집자'** 권한인지 확인해주세요.")
-        st.info("💡 체크포인트 2: 혹시 회사 구글 계정으로 시트를 만드셨다면, 사내 보안 정책상 외부 봇의 쓰기 권한이 막혀있을 수 있습니다.")
+        st.info("💡 체크포인트: 구글 시트 [공유] 설정에서 봇 이메일이 **'뷰어'**가 아닌 **'편집자'** 권한인지 꼭 확인하세요.")
+        return False
 
 def hash_pin(pin):
     return hashlib.sha256(pin.encode('utf-8')).hexdigest()
@@ -74,15 +75,23 @@ with st.sidebar.expander("➕ 새 유저 등록하기", expanded=False):
         if new_profile and new_profile not in data:
             if new_pin:
                 rate = 0.165 if "이하" in income_level else 0.132
+                # 일단 데이터를 추가해봄
                 data[new_profile] = {"pin": hash_pin(new_pin), "income_rate": rate, "pension": []}
-                save_data(data) # 구글 시트에 즉시 저장
-                st.session_state['db_data'] = data
-                st.success("등록 완료! 이제 로그인해주세요.")
-                st.rerun()
+                
+                # 시트 저장 시도 (성공 여부를 is_saved에 담음)
+                is_saved = save_data(data)
+                
+                if is_saved:
+                    # 저장에 성공했을 때만! 세션에 반영하고 새로고침
+                    st.session_state['db_data'] = data
+                    st.success("등록 완료! 이제 로그인해주세요.")
+                    st.rerun()
+                else:
+                    # 저장에 실패했다면 방금 추가한 데이터를 다시 삭제 (원상복구)
+                    del data[new_profile]
+                    # st.rerun()을 실행하지 않으므로 에러 메시지가 화면에 계속 남아있음!
             else:
                 st.error("비밀번호를 반드시 입력해야 합니다.")
-        elif new_profile in data:
-            st.warning("이미 등록된 이름입니다.")
 
 # --- 3. 로그인 및 인증 로직 ---
 profile_names = list(data.keys())
