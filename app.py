@@ -5,6 +5,9 @@ import hashlib
 import gspread
 from google.oauth2.service_account import Credentials
 
+# 🚨 [수정 1] 스트림릿 절대 규칙! 페이지 셋팅은 무조건 가장 먼저 와야 합니다.
+st.set_page_config(page_title="택스 히어로(Tax Hero) - 클라우드 DB", layout="wide", page_icon="☁️")
+
 # --- 1. 구글 시트 데이터베이스 셋업 ---
 @st.cache_resource
 def init_connection():
@@ -23,7 +26,7 @@ def init_connection():
         st.error(f"데이터베이스 연결 실패: {e}")
         st.stop()
 
-# 🚨 직전에 지워졌던 바로 그 핵심 코드입니다! (시트 연결 변수 선언)
+# 시트 연결 변수 선언
 sheet = init_connection()
 
 def load_data():
@@ -41,7 +44,6 @@ def save_data(data):
         sheet.update_acell('A1', json_str)
         return True # 정상 저장됨
     except Exception as e:
-        # 에러가 발생하면 화면에 출력하고 False 반환
         st.error(f"🚨 구글 시트 저장 실패! (실제 에러 내용: {e})")
         st.info("💡 체크포인트: 구글 시트 [공유] 설정에서 봇 이메일이 **'뷰어'**가 아닌 **'편집자'** 권한인지 꼭 확인하세요.")
         return False
@@ -49,15 +51,12 @@ def save_data(data):
 def hash_pin(pin):
     return hashlib.sha256(pin.encode('utf-8')).hexdigest()
 
-st.set_page_config(page_title="택스 히어로(Tax Hero) - 클라우드 DB", layout="wide", page_icon="☁️")
-
-# 매번 시트를 읽으면 느려질 수 있으므로 세션에 캐싱
+# --- 세션 초기화 및 DB 로드 ---
 if 'db_data' not in st.session_state:
     st.session_state['db_data'] = load_data()
 
 data = st.session_state['db_data']
 
-# --- 세션 상태 초기화 ---
 if 'authenticated_user' not in st.session_state:
     st.session_state['authenticated_user'] = None
 if 'current_selection' not in st.session_state:
@@ -77,23 +76,20 @@ with st.sidebar.expander("➕ 새 유저 등록하기", expanded=False):
         if new_profile and new_profile not in data:
             if new_pin:
                 rate = 0.165 if "이하" in income_level else 0.132
-                # 일단 데이터를 추가해봄
                 data[new_profile] = {"pin": hash_pin(new_pin), "income_rate": rate, "pension": []}
                 
-                # 시트 저장 시도 (성공 여부를 is_saved에 담음)
                 is_saved = save_data(data)
                 
                 if is_saved:
-                    # 저장에 성공했을 때만! 세션에 반영하고 새로고침
                     st.session_state['db_data'] = data
                     st.success("등록 완료! 이제 로그인해주세요.")
                     st.rerun()
                 else:
-                    # 저장에 실패했다면 방금 추가한 데이터를 다시 삭제 (원상복구)
                     del data[new_profile]
-                    # st.rerun()을 실행하지 않으므로 에러 메시지가 화면에 계속 남아있음!
             else:
                 st.error("비밀번호를 반드시 입력해야 합니다.")
+        elif new_profile in data:
+            st.warning("이미 등록된 이름입니다.")
 
 # --- 3. 로그인 및 인증 로직 ---
 profile_names = list(data.keys())
@@ -199,7 +195,7 @@ if selected_profile != "유저를 등록해주세요":
                     "remain_months": remain_m,
                     "is_insurance": is_old_ins
                 })
-                save_data(data) # 구글 시트에 즉시 덮어쓰기
+                save_data(data)
                 st.session_state['db_data'] = data
                 st.rerun()
             else:
