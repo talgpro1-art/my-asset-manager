@@ -34,9 +34,14 @@ def load_data():
         return {}
 
 def save_data(data):
-    # 구글 시트 A1 셀에 데이터를 통째로 덮어씀 (영구 저장)
-    json_str = json.dumps(data, ensure_ascii=False)
-    sheet.update_acell('A1', json_str)
+    try:
+        json_str = json.dumps(data, ensure_ascii=False)
+        sheet.update_acell('A1', json_str)
+    except Exception as e:
+        # 스트림릿이 에러를 숨기지 못하도록 우리가 직접 화면에 뿌려버립니다.
+        st.error(f"🚨 구글 시트 저장 실패! (실제 에러 내용: {e})")
+        st.info("💡 체크포인트 1: 구글 시트 [공유] 설정에서 봇 이메일이 **'뷰어'**가 아닌 **'편집자'** 권한인지 확인해주세요.")
+        st.info("💡 체크포인트 2: 혹시 회사 구글 계정으로 시트를 만드셨다면, 사내 보안 정책상 외부 봇의 쓰기 권한이 막혀있을 수 있습니다.")
 
 def hash_pin(pin):
     return hashlib.sha256(pin.encode('utf-8')).hexdigest()
