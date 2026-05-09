@@ -129,42 +129,46 @@ if selected_profile != "유저를 등록해주세요":
     items = data[selected_profile].get("pension", [])
     df = pd.DataFrame(items)
     
-    limit_pen = 6000000
-    limit_irp = 3000000
-    total_limit = 9000000
-    
-    total_pen, total_irp = 0, 0
+    # --- 한도 계산 로직 고도화 ---
+    limit_pen = 6000000 # 연금저축 공제한도
+    limit_irp = 3000000 # IRP 추가 공제한도
+    tax_limit = 9000000 # 총 세액공제 한도
+    total_annual_limit = 18000000 # 연간 총 납입 한도 (법정)
+
+    total_pen = 0
+    total_irp = 0
     if not df.empty:
         total_pen = df[df['type'] == "연금저축(보험/펀드)"]['annual_total'].sum()
         total_irp = df[df['type'] == "IRP"]['annual_total'].sum()
     
+    # 1. 세액공제 인정 금액 계산
     valid_pen = min(total_pen, limit_pen)
-    valid_irp = min(total_irp, total_limit - valid_pen)
-    total_valid = valid_pen + valid_irp
+    valid_irp = min(total_irp, tax_limit - valid_pen)
+    total_tax_valid = valid_pen + valid_irp # 세액공제 대상 금액
     
-    shortfall = total_limit - total_valid
-    shortfall_pen = max(0, limit_pen - valid_pen)
-    shortfall_irp = max(0, shortfall - shortfall_pen) 
-    
-    max_refund = int(total_limit * user_rate)         
-    current_refund = int(total_valid * user_rate)     
-    lost_money = max_refund - current_refund          
-    
-    st.title(f"🎯 {selected_profile}님의 연말정산 최적화 리포트")
-    st.caption(f"적용된 세액공제율: {rate_text}")
-    st.markdown("---")
-    
-    if lost_money > 0:
-        st.error(f"🚨 **비상!** 올해 국가에서 확정적으로 받을 수 있는 **{max_refund:,}원** 중, 아무것도 하지 않아 **{lost_money:,}원**을 허공에 날리고 있습니다!")
-    else:
-        st.success(f"🎉 **완벽합니다!** 올해 국가에서 받을 수 있는 최대 환급액 **{max_refund:,}원**을 100% 확보하셨습니다!")
+    # 2. 전체 납입 및 추가 한도 계산
+    total_actual_pay = total_pen + total_irp # 실제 총 납입액
+    over_limit_pay = max(0, total_actual_pay - tax_limit) # 공제 한도 초과분 (B호 권장분)
+    remaining_total_limit = max(0, total_annual_limit - total_actual_pay) # 1800만 원까지 남은 금액
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("총 한도액", f"{total_limit:,}원")
-    col2.metric("🟢 현재 채운 금액", f"{total_valid:,}원")
-    col3.metric("🔴 남은 한도 (버려지는 중)", f"{shortfall:,}원")
+    # --- 화면 표시 ---
+    st.title(f"🎯 {selected_profile}님의 통합 자산 관리 리포트")
     
-    st.progress(total_valid / total_limit)
+    # 첫 번째 줄: 세액공제 집중 (900만 한도)
+    st.subheader("🛡️ 세액공제 트랙 (연 900만 원)")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("공제 대상 금액", f"{total_tax_valid:,}원")
+    c2.metric("남은 공제 한도", f"{max(0, tax_limit - total_tax_valid):,}원")
+    c3.metric("예상 환급액", f"{int(total_tax_valid * user_rate):,}원")
+    st.progress(min(1.0, total_tax_valid / tax_limit))
+
+    # 두 번째 줄: 전체 투자 집중 (1,800만 한도)
+    st.subheader("🚀 전략적 투자 트랙 (연 1,800만 원)")
+    c4, c5, c6 = st.columns(3)
+    c4.metric("총 납입 금액", f"{total_actual_pay:,}원")
+    c5.metric("공제 초과 금액 (B호)", f"{over_limit_pay:,}원", help="세액공제는 못 받지만 언제든 비과세 인출이 가능한 금액입니다.")
+    c6.metric("추가 납입 가능액", f"{remaining_total_limit:,}원", help="1,800만 원 한도까지 남은 금액입니다.")
+    st.progress(min(1.0, total_actual_pay / total_annual_limit))
     st.write("")
 
     st.markdown("### 🏦 내 연금 계좌 관리")
