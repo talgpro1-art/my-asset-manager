@@ -5,7 +5,7 @@ import hashlib
 import gspread
 from google.oauth2.service_account import Credentials
 
-# 🚨 [수정 1] 스트림릿 절대 규칙! 페이지 셋팅은 무조건 가장 먼저 와야 합니다.
+# 🚨 페이지 셋팅은 무조건 가장 먼저!
 st.set_page_config(page_title="택스 히어로(Tax Hero) - 클라우드 DB", layout="wide", page_icon="☁️")
 
 # --- 1. 구글 시트 데이터베이스 셋업 ---
@@ -14,9 +14,8 @@ def init_connection():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # 줄바꿈 기호(\n) 강제 변환 로직
-        gcp_creds = dict(st.secrets["gcp_service_account"])
-        gcp_creds["private_key"] = gcp_creds["private_key"].replace('\\n', '\n')
+        # 💡 [핵심 수정] 복잡한 변환 로직 삭제! Secrets에 통째로 넣은 JSON 텍스트를 바로 읽어옵니다.
+        gcp_creds = json.loads(st.secrets["google_json"])
         
         creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
         client = gspread.authorize(creds)
