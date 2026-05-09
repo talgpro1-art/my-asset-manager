@@ -1,27 +1,52 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
 import hashlib
+import gspread
+from google.oauth2.service_account import Credentials
 
-# --- 1. 데이터베이스 셋업 ---
-DATA_FILE = "v8_2_data.json"
+# --- 1. 구글 시트 데이터베이스 셋업 ---
+# 허깅페이스/스트림릿 Secrets에서 인증 정보를 가져옵니다.
+@st.cache_resource
+def init_connection():
+    try:
+        # GCP 서비스 계정 키와 시트 URL을 secrets에서 불러옴
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        client = gspread.authorize(creds)
+        sheet_url = st.secrets["private"]["sheet_url"]
+        return client.open_by_url(sheet_url).sheet1
+    except Exception as e:
+        st.error(f"데이터베이스 연결 실패: {e}")
+        st.stop()
+
+sheet = init_connection()
 
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    try:
+        # 구글 시트 A1 셀의 데이터를 통째로 읽어옴
+        val = sheet.acell('A1').value
+        if val:
+            return json.loads(val)
+        return {}
+    except Exception:
+        return {}
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    # 구글 시트 A1 셀에 데이터를 통째로 덮어씀 (영구 저장)
+    json_str = json.dumps(data, ensure_ascii=False)
+    sheet.update_acell('A1', json_str)
 
 def hash_pin(pin):
     return hashlib.sha256(pin.encode('utf-8')).hexdigest()
 
-st.set_page_config(page_title="택스 히어로(Tax Hero) - 버그 픽스", layout="wide", page_icon="🛡️")
-data = load_data()
+st.set_page_config(page_title="택스 히어로(Tax Hero) - 클라우드 DB", layout="wide", page_icon="☁️")
+
+# 매번 시트를 읽으면 느려질 수 있으므로 세션에 캐싱
+if 'db_data' not in st.session_state:
+    st.session_state['db_data'] = load_data()
+
+data = st.session_state['db_data']
 
 # --- 세션 상태 초기화 ---
 if 'authenticated_user' not in st.session_state:
@@ -44,7 +69,8 @@ with st.sidebar.expander("➕ 새 유저 등록하기", expanded=False):
             if new_pin:
                 rate = 0.165 if "이하" in income_level else 0.132
                 data[new_profile] = {"pin": hash_pin(new_pin), "income_rate": rate, "pension": []}
-                save_data(data)
+                save_data(data) # 구글 시트에 즉시 저장
+                st.session_state['db_data'] = data
                 st.success("등록 완료! 이제 로그인해주세요.")
                 st.rerun()
             else:
@@ -78,7 +104,7 @@ if selected_profile != "유저를 등록해주세요":
         st.stop()
 
     # ==========================================
-    # 인증 성공 시 (메인 대시보드 렌더링 시작)
+    # 인증 성공 시 메인 대시보드
     # ==========================================
     st.sidebar.success("✅ 로그인 성공")
     if st.sidebar.button("로그아웃"):
@@ -105,8 +131,6 @@ if selected_profile != "유저를 등록해주세요":
     total_valid = valid_pen + valid_irp
     
     shortfall = total_limit - total_valid
-    
-    # [수정된 핵심 로직] IRP 부족액은 '전체 부족액'에서 '연저펀 배정액'을 뺀 나머지로 계산
     shortfall_pen = max(0, limit_pen - valid_pen)
     shortfall_irp = max(0, shortfall - shortfall_pen) 
     
@@ -143,13 +167,9 @@ if selected_profile != "유저를 등록해주세요":
         remain_m = 0
         if is_old_ins:
             col_a, col_b = st.columns(2)
-            total_m = col_a.number_input("총 약정 납입 개월 수 (예: 10년 납 = 120)", min_value=1, value=120)
+            total_m = col_a.number_input("총 약정 납입 개월 수", min_value=1, value=120)
             paid_m = col_b.number_input("현재까지 납입 완료한 횟수", min_value=0, value=0)
-            
-            remain_m = total_m - paid_m
-            if remain_m < 0:
-                remain_m = 0
-                
+            remain_m = max(0, total_m - paid_m)
             st.info(f"👉 이 보험의 남은 납입 개월 수는 **{remain_m}개월**로 자동 계산되었습니다.")
             
         if st.button("상품 등록", type="primary"):
@@ -162,7 +182,8 @@ if selected_profile != "유저를 등록해주세요":
                     "remain_months": remain_m,
                     "is_insurance": is_old_ins
                 })
-                save_data(data)
+                save_data(data) # 구글 시트에 즉시 덮어쓰기
+                st.session_state['db_data'] = data
                 st.rerun()
             else:
                 st.warning("계좌명을 입력해주세요.")
@@ -173,23 +194,22 @@ if selected_profile != "유저를 등록해주세요":
             with st.container():
                 st.markdown(f"**[{row['type']}] {row['name']}** (연 납입: {row['annual_total']:,}원)")
                 if row.get('is_insurance', False) and 0 < row['remain_months'] <= 12:
-                    st.warning(f"💡 이 보험은 완납까지 **{row['remain_months']}개월** 남았습니다! 완료 즉시 증권사 '연금저축펀드'로 이전하여 비과세 ETF 투자를 시작하세요.")
+                    st.warning(f"💡 이 보험은 완납까지 **{row['remain_months']}개월** 남았습니다! 완료 즉시 증권사 '연금저축펀드'로 이전하세요.")
                 if st.button("삭제", key=f"del_{i}"):
                     data[selected_profile]["pension"].pop(i)
                     save_data(data)
+                    st.session_state['db_data'] = data
                     st.rerun()
         st.markdown("---")
 
     if shortfall > 0:
         st.markdown("### 🤖 파트너 봇의 맞춤형 액션 플랜")
-        st.info(f"허공에 날리고 있는 **{lost_money:,}원**을 즉시 회수하기 위해, 남은 **{shortfall:,}원**을 아래 가이드에 따라 세팅하세요.")
+        st.info(f"허공에 날리고 있는 **{lost_money:,}원**을 회수하기 위해, 남은 **{shortfall:,}원**을 아래 가이드에 따라 세팅하세요.")
         st.markdown("#### 1단계: 수수료 0원 증권사 비대면 개설")
-        st.markdown("은행이나 보험사가 아닌, ETF 실시간 매매가 가능한 **대형 증권사 앱(삼성증권, 미래에셋 등)**을 설치하세요.")
-        st.markdown("#### 2단계: 목적별 3개의 계좌 만들기 (핵심 전략)")
+        st.markdown("ETF 실시간 매매가 가능한 **대형 증권사 앱**을 설치하세요.")
+        st.markdown("#### 2단계: 목적별 계좌 만들기")
         if shortfall_pen > 0:
             st.checkbox(f"✅ **[연금저축펀드 A호] (세액공제 & 기존보험 이전용):** 개설 후 **{shortfall_pen:,}원** 입금하기.")
         st.checkbox("✅ **[연금저축펀드 B호] (초과납입 & 비상금 출금용):** 우선 개설만 해두기 (현재 0원).")
         if shortfall_irp > 0:
             st.checkbox(f"✅ **[다이렉트 IRP] (추가 세액공제용):** 개설 후 **{shortfall_irp:,}원** 입금하기.")
-        st.markdown("#### 3단계: ETF 분할 매수")
-        st.markdown("* **연금저축펀드 A, B호:** 미국 나스닥 100 ETF, S&P 500 ETF (100% 한도로 공격적 매수)\n* **IRP 계좌:** 미국 테크주 ETF (70%) + 달러 단기채권 또는 금(Gold) ETF (30% 리스크 헷징)")
