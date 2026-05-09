@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import hashlib  # 암호화를 위한 라이브러리 추가
+import hashlib
 
 # --- 1. 데이터베이스 셋업 ---
-DATA_FILE = "v8_1_data.json"
+DATA_FILE = "v8_2_data.json"
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -17,12 +17,10 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# --- PIN 암호화 함수 ---
 def hash_pin(pin):
-    """비밀번호를 SHA-256 방식으로 암호화하여 반환합니다."""
     return hashlib.sha256(pin.encode('utf-8')).hexdigest()
 
-st.set_page_config(page_title="택스 히어로(Tax Hero) - 강력 보안", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="택스 히어로(Tax Hero) - 버그 픽스", layout="wide", page_icon="🛡️")
 data = load_data()
 
 # --- 세션 상태 초기화 ---
@@ -31,7 +29,7 @@ if 'authenticated_user' not in st.session_state:
 if 'current_selection' not in st.session_state:
     st.session_state['current_selection'] = None
 
-# --- 2. 사이드바 프로필 등록 (PIN 암호화 적용) ---
+# --- 2. 사이드바 프로필 등록 ---
 st.sidebar.title("🔒 유저 로그인")
 
 with st.sidebar.expander("➕ 새 유저 등록하기", expanded=False):
@@ -45,7 +43,6 @@ with st.sidebar.expander("➕ 새 유저 등록하기", expanded=False):
         if new_profile and new_profile not in data:
             if new_pin:
                 rate = 0.165 if "이하" in income_level else 0.132
-                # 날것의 PIN이 아닌, 암호화된 해시값(hash_pin)을 DB에 저장
                 data[new_profile] = {"pin": hash_pin(new_pin), "income_rate": rate, "pension": []}
                 save_data(data)
                 st.success("등록 완료! 이제 로그인해주세요.")
@@ -71,7 +68,6 @@ if selected_profile != "유저를 등록해주세요":
         entered_pin = st.sidebar.text_input("비밀번호를 입력하세요", type="password")
         
         if st.sidebar.button("로그인"):
-            # 유저가 방금 입력한 값도 동일하게 암호화하여 DB의 암호화된 값과 비교
             if hash_pin(entered_pin) == data[selected_profile].get("pin"):
                 st.session_state['authenticated_user'] = selected_profile
                 st.rerun()
@@ -109,8 +105,10 @@ if selected_profile != "유저를 등록해주세요":
     total_valid = valid_pen + valid_irp
     
     shortfall = total_limit - total_valid
+    
+    # [수정된 핵심 로직] IRP 부족액은 '전체 부족액'에서 '연저펀 배정액'을 뺀 나머지로 계산
     shortfall_pen = max(0, limit_pen - valid_pen)
-    shortfall_irp = max(0, total_limit - valid_pen - valid_irp)
+    shortfall_irp = max(0, shortfall - shortfall_pen) 
     
     max_refund = int(total_limit * user_rate)         
     current_refund = int(total_valid * user_rate)     
